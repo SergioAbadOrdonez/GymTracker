@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Text, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
 import { Card, Title, TextInput, Button, List, IconButton, FAB, Portal, Modal, Menu, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { saveWorkout, getCustomRoutines } from '../utils/storage';
+import { EXERCISE_GROUPS, getMuscleGroups } from '../utils/exercises';
 
 const WORKOUT_TYPES = [
   {
@@ -25,7 +26,7 @@ const WORKOUT_TYPES = [
 
 export default function WorkoutScreen() {
   const router = useRouter();
-  const { workoutType: initialWorkoutType } = useLocalSearchParams();
+  const { workoutType: initialWorkoutType, routineId } = useLocalSearchParams();
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
   const [workoutType, setWorkoutType] = useState(() => {
     // Inicializar con el tipo pasado por parámetro o el primero de la lista
@@ -34,6 +35,7 @@ export default function WorkoutScreen() {
   });
   const [exercises, setExercises] = useState([]);
   const [customRoutines, setCustomRoutines] = useState([]);
+  const [currentRoutine, setCurrentRoutine] = useState(null);
   const [timer, setTimer] = useState(0);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [showExerciseModal, setShowExerciseModal] = useState(false);
@@ -45,17 +47,39 @@ export default function WorkoutScreen() {
   }, []);
 
   useEffect(() => {
-    if (initialWorkoutType) {
+    console.log('Received routineId:', routineId);
+    console.log('Received routineId type:', typeof routineId);
+    console.log('Available custom routines:', customRoutines);
+    
+    if (routineId) {
+      const routine = customRoutines.find(r => {
+        console.log('Comparing:', r.id, routineId);
+        console.log('Types:', typeof r.id, typeof routineId);
+        return String(r.id) === String(routineId);
+      });
+      
+      if (routine) {
+        console.log('Found routine:', routine);
+        setCurrentRoutine(routine);
+        initializeExercises(routine.exercises);
+      } else {
+        console.error('Routine not found:', routineId);
+        console.log('Available routines:', customRoutines);
+      }
+    } else if (initialWorkoutType) {
       const found = WORKOUT_TYPES.find(w => w.name === initialWorkoutType);
       if (found) {
         setWorkoutType(found);
+        setCurrentRoutine(null);
         initializeExercises(found.exercises);
       }
     }
-  }, [initialWorkoutType]);
+  }, [initialWorkoutType, routineId, customRoutines]);
 
   useEffect(() => {
-    initializeExercises(workoutType.exercises);
+    if (!routineId) {
+      initializeExercises(workoutType.exercises);
+    }
   }, [workoutType]);
 
   useEffect(() => {
@@ -76,6 +100,7 @@ export default function WorkoutScreen() {
   const loadCustomRoutines = async () => {
     try {
       const routines = await getCustomRoutines();
+      console.log('Loaded routines:', routines);
       setCustomRoutines(routines || []);
     } catch (error) {
       console.error('Error loading custom routines:', error);
@@ -127,6 +152,23 @@ export default function WorkoutScreen() {
   };
 
   const addExercise = (exerciseName) => {
+    // Verificar si el ejercicio ya existe
+    const exerciseExists = exercises.some(exercise => exercise.name === exerciseName);
+    
+    if (exerciseExists) {
+      Alert.alert(
+        'Ejercicio Duplicado',
+        'Este ejercicio ya está en tu rutina. No puedes añadir el mismo ejercicio dos veces.',
+        [
+          {
+            text: 'OK',
+            style: 'cancel'
+          }
+        ]
+      );
+      return;
+    }
+
     setExercises([
       ...exercises,
       {
@@ -231,6 +273,15 @@ export default function WorkoutScreen() {
     );
   };
 
+  const moveExercise = (fromIndex, toIndex) => {
+    setExercises(prevExercises => {
+      const newExercises = [...prevExercises];
+      const [movedExercise] = newExercises.splice(fromIndex, 1);
+      newExercises.splice(toIndex, 0, movedExercise);
+      return newExercises;
+    });
+  };
+
   return (
     <View style={styles.container}>
       <Portal>
@@ -255,7 +306,11 @@ export default function WorkoutScreen() {
         </Menu>
       </Portal>
 
-      <ScrollView style={styles.scrollView}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+      >
         <Card style={styles.typeCard}>
           <Card.Content>
             <Title style={styles.title}>Tipo de Entrenamiento</Title>
@@ -264,7 +319,7 @@ export default function WorkoutScreen() {
               onPress={handleWorkoutTypePress}
               style={styles.typeButton}
             >
-              {workoutType.name}
+              {currentRoutine ? currentRoutine.name : workoutType.name}
             </Button>
           </Card.Content>
         </Card>
@@ -281,40 +336,54 @@ export default function WorkoutScreen() {
           </Card>
         )}
 
-        {exercises.map((exercise) => (
-          <Card key={exercise.id} style={styles.card}>
+        {exercises.map((exercise, index) => (
+          <Card key={exercise.id} style={styles.exerciseCard}>
             <Card.Content>
               <View style={styles.exerciseHeader}>
                 <Title style={styles.exerciseTitle}>{exercise.name}</Title>
-                <IconButton
-                  icon="delete"
-                  size={20}
-                  color="#ff5252"
-                  onPress={() => handleDeleteExercise(exercise.id)}
-                  style={styles.deleteButton}
-                />
+                <View style={styles.exerciseActions}>
+                  <IconButton
+                    icon="arrow-up"
+                    size={24}
+                    onPress={() => moveExercise(index, Math.max(0, index - 1))}
+                    disabled={index === 0}
+                  />
+                  <IconButton
+                    icon="arrow-down"
+                    size={24}
+                    onPress={() => moveExercise(index, Math.min(exercises.length - 1, index + 1))}
+                    disabled={index === exercises.length - 1}
+                  />
+                  <IconButton
+                    icon="delete"
+                    size={24}
+                    onPress={() => handleDeleteExercise(exercise.id)}
+                  />
+                </View>
               </View>
-              {exercise.sets.map((set, index) => (
-                <View key={index} style={styles.setRow}>
-                  <Text style={styles.setNumber}>Set {index + 1}</Text>
+              
+              {exercise.sets.map((set, setIndex) => (
+                <View key={setIndex} style={styles.setRow}>
+                  <Text style={styles.setNumber}>Set {setIndex + 1}</Text>
                   <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    placeholder="Kg"
+                    label="Peso"
                     value={set.weight}
-                    onChangeText={(value) => updateSet(exercise.id, index, 'weight', value)}
+                    onChangeText={(text) => updateSet(exercise.id, setIndex, 'weight', text)}
+                    keyboardType="numeric"
+                    style={styles.setInput}
                   />
                   <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    placeholder="Reps"
+                    label="Reps"
                     value={set.reps}
-                    onChangeText={(value) => updateSet(exercise.id, index, 'reps', value)}
+                    onChangeText={(text) => updateSet(exercise.id, setIndex, 'reps', text)}
+                    keyboardType="numeric"
+                    style={styles.setInput}
                   />
                   <IconButton
                     icon={set.completed ? "check-circle" : "circle-outline"}
-                    onPress={() => toggleSetCompletion(exercise.id, index)}
-                    color={set.completed ? "#4CAF50" : "#757575"}
+                    size={24}
+                    onPress={() => toggleSetCompletion(exercise.id, setIndex)}
+                    style={set.completed ? styles.completedSet : styles.incompleteSet}
                   />
                 </View>
               ))}
@@ -328,25 +397,16 @@ export default function WorkoutScreen() {
             </Card.Content>
           </Card>
         ))}
-
-        {exercises.length > 0 && (
-          <View style={styles.finishContainer}>
-            <Button
-              mode="contained"
-              onPress={handleFinishWorkout}
-              style={styles.finishButton}
-              labelStyle={styles.finishButtonText}
-              contentStyle={styles.buttonContent}
-              theme={{
-                colors: { primary: '#6200ee' },
-                roundness: 8
-              }}
-            >
-              Finalizar Entrenamiento
-            </Button>
-          </View>
-        )}
       </ScrollView>
+
+      <Button
+        mode="contained"
+        onPress={handleFinishWorkout}
+        style={styles.finishButton}
+        contentStyle={styles.buttonContent}
+      >
+        Finalizar Entrenamiento
+      </Button>
 
       <FAB
         style={styles.fab}
@@ -362,13 +422,22 @@ export default function WorkoutScreen() {
         >
           <ScrollView>
             <Title style={styles.modalTitle}>Añadir Ejercicio</Title>
-            {WORKOUT_TYPES.flatMap(type => type.exercises).map((exercise, index) => (
-              <List.Item
-                key={index}
-                title={exercise}
-                onPress={() => addExercise(exercise)}
-                right={props => <List.Icon {...props} icon="plus" />}
-              />
+            {getMuscleGroups().map((groupName) => (
+              <List.Accordion
+                key={groupName}
+                title={groupName}
+                left={props => <List.Icon {...props} icon="dumbbell" />}
+                style={styles.accordion}
+              >
+                {EXERCISE_GROUPS[groupName].exercises.map((exercise, index) => (
+                  <List.Item
+                    key={index}
+                    title={exercise}
+                    onPress={() => addExercise(exercise)}
+                    right={props => <List.Icon {...props} icon="plus" />}
+                  />
+                ))}
+              </List.Accordion>
             ))}
           </ScrollView>
         </Modal>
@@ -384,7 +453,17 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     padding: 16,
+    paddingBottom: 80, // Añadir padding extra para el botón fijo
+  },
+  finishButton: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: '#6200ee',
   },
   typeCard: {
     marginBottom: 16,
@@ -453,7 +532,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     margin: 16,
     right: 0,
-    bottom: 0,
+    bottom: 60, // Reducir la distancia desde abajo para que esté más cerca del botón de finalizar
     backgroundColor: '#6200ee',
   },
   modal: {
@@ -470,19 +549,6 @@ const styles = StyleSheet.create({
     margin: 10,
     marginTop: 20,
     marginBottom: 30,
-  },
-  finishButton: {
-    backgroundColor: '#6200ee',
-    borderWidth: 0,
-    borderRadius: 8,
-    elevation: 0,
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: {
-      width: 0,
-      height: 0,
-    },
   },
   buttonContent: {
     height: 48,
@@ -508,5 +574,32 @@ const styles = StyleSheet.create({
   },
   menuItem: {
     minWidth: 200,
+  },
+  accordion: {
+    backgroundColor: 'white',
+    marginBottom: 4,
+  },
+  exerciseCard: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    elevation: 2,
+    marginBottom: 16,
+  },
+  exerciseActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  setInput: {
+    flex: 1,
+    marginHorizontal: 4,
+    height: 40,
+    backgroundColor: 'white',
+    color: '#333333',
+  },
+  completedSet: {
+    backgroundColor: '#e8f5e9',
+  },
+  incompleteSet: {
+    backgroundColor: '#f5f5f5',
   },
 });

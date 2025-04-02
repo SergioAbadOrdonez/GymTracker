@@ -1,38 +1,31 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Title, Text } from 'react-native-paper';
-import { auth } from '../utils/firebase';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { useRouter } from 'expo-router';
+import { View, StyleSheet, Image } from 'react-native';
+import { TextInput, Button, Text } from 'react-native-paper';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../../firebase';
+import { router } from 'expo-router';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
 
   const handleLogin = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      await signInWithEmailAndPassword(auth, email, password);
-      router.replace('/');
-    } catch (error) {
-      setError('Error al iniciar sesión: ' + error.message);
-    } finally {
-      setLoading(false);
+    if (!email || !password) {
+      setError('Por favor, completa todos los campos');
+      return;
     }
-  };
 
-  const handleSignUp = async () => {
+    setLoading(true);
+    setError('');
+
     try {
-      setLoading(true);
-      setError('');
-      await createUserWithEmailAndPassword(auth, email, password);
-      router.replace('/');
+      await signInWithEmailAndPassword(auth, email, password);
+      router.replace('/(tabs)');
     } catch (error) {
-      setError('Error al crear cuenta: ' + error.message);
+      console.error('Error de inicio de sesión:', error);
+      setError('Error al iniciar sesión. Verifica tus credenciales.');
     } finally {
       setLoading(false);
     }
@@ -40,8 +33,14 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Title style={styles.title}>GymTracker</Title>
-      
+      <View style={styles.logoContainer}>
+        <Image
+          source={require('../../assets/images/react-logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
+      </View>
+      <Text style={styles.title}>GymTracker</Text>
       <TextInput
         label="Email"
         value={email}
@@ -49,8 +48,8 @@ export default function LoginScreen() {
         mode="outlined"
         style={styles.input}
         autoCapitalize="none"
+        keyboardType="email-address"
       />
-      
       <TextInput
         label="Contraseña"
         value={password}
@@ -59,25 +58,22 @@ export default function LoginScreen() {
         style={styles.input}
         secureTextEntry
       />
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
       <Button
         mode="contained"
         onPress={handleLogin}
-        loading={loading}
         style={styles.button}
+        loading={loading}
+        disabled={loading}
       >
         Iniciar Sesión
       </Button>
-
       <Button
-        mode="outlined"
-        onPress={handleSignUp}
-        loading={loading}
-        style={styles.button}
+        mode="text"
+        onPress={() => router.push('/register')}
+        style={styles.linkButton}
       >
-        Crear Cuenta
+        ¿No tienes cuenta? Regístrate
       </Button>
     </View>
   );
@@ -86,22 +82,40 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    padding: 20,
     justifyContent: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logo: {
+    width: 120,
+    height: 120,
   },
   title: {
-    textAlign: 'center',
-    marginBottom: 24,
     fontSize: 32,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 30,
+    color: '#6200ee',
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 15,
+    backgroundColor: 'white',
   },
   button: {
-    marginTop: 8,
+    marginTop: 10,
+    paddingVertical: 8,
+    backgroundColor: '#6200ee',
+  },
+  linkButton: {
+    marginTop: 15,
   },
   error: {
     color: 'red',
-    marginBottom: 16,
+    textAlign: 'center',
+    marginBottom: 10,
   },
 });

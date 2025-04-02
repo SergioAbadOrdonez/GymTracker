@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo circular -->
+  <circle cx="512" cy="512" r="512" fill="#6200ee"/>
+  
+  <!-- Mancuerna minimalista -->
+  <g fill="white">
+    <!-- Barra central -->
+    <rect x="312" y="462" width="400" height="100" rx="20"/>
+    
+    <!-- Pesas izquierda -->
+    <circle cx="312" cy="512" r="60"/>
+    
+    <!-- Pesas derecha -->
+    <circle cx="712" cy="512" r="60"/>
+  </g>
+</svg> 

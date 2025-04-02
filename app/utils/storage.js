@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db, auth } from './firebase';
+import { db, auth } from '../../firebase';
 import { collection, addDoc, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
 
 // Claves para el almacenamiento
@@ -256,16 +256,23 @@ export const restoreFromCloud = async () => {
 export const saveCustomRoutine = async (routine) => {
   try {
     const existingRoutines = await getCustomRoutines();
+    console.log('Existing routines:', existingRoutines);
+    
     const newRoutine = {
       ...routine,
-      id: Date.now(),
+      id: Date.now().toString(),
       createdAt: new Date().toISOString()
     };
+    
+    console.log('New routine to save:', newRoutine);
     const updatedRoutines = [...existingRoutines, newRoutine];
+    
     await AsyncStorage.setItem(
       STORAGE_KEYS.CUSTOM_ROUTINES,
       JSON.stringify(updatedRoutines)
     );
+    
+    console.log('Saved routines:', updatedRoutines);
     return true;
   } catch (error) {
     console.error('Error saving custom routine:', error);

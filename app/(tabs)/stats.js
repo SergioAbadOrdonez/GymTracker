@@ -5,6 +5,21 @@ import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
 import { getExerciseStats, getWorkouts } from '../utils/storage';
 import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
+import { EXERCISE_GROUPS } from '../utils/exercises';
+
+// Añadir una paleta de colores predefinida
+const CHART_COLORS = [
+  '#FF6B6B',  // Rojo
+  '#4ECDC4',  // Turquesa
+  '#45B7D1',  // Azul claro
+  '#96CEB4',  // Verde menta
+  '#FFEEAD',  // Amarillo claro
+  '#D4A5A5',  // Rosa
+  '#9B59B6',  // Púrpura
+  '#3498DB',  // Azul
+  '#E67E22',  // Naranja
+  '#2ECC71'   // Verde
+];
 
 export default function StatsScreen() {
   const [loading, setLoading] = useState(true);
@@ -97,16 +112,20 @@ export default function StatsScreen() {
 
   const calculateSummaryStats = (workouts) => {
     const exerciseFrequency = {};
-    let totalVolume = 0;
+    const exerciseMaxWeights = {};
     let totalDuration = 0;
 
     workouts.forEach(workout => {
       workout.exercises.forEach(exercise => {
         exerciseFrequency[exercise.name] = (exerciseFrequency[exercise.name] || 0) + 1;
         
+        // Calcular el peso máximo por ejercicio
         exercise.sets.forEach(set => {
-          if (set.weight && set.reps) {
-            totalVolume += parseFloat(set.weight) * parseInt(set.reps);
+          if (set.weight) {
+            const weight = parseFloat(set.weight);
+            if (!exerciseMaxWeights[exercise.name] || weight > exerciseMaxWeights[exercise.name]) {
+              exerciseMaxWeights[exercise.name] = weight;
+            }
           }
         });
       });
@@ -118,9 +137,14 @@ export default function StatsScreen() {
     const mostFrequent = Object.entries(exerciseFrequency)
       .sort(([,a], [,b]) => b - a)[0]?.[0] || 'N/A';
 
+    // Encontrar el ejercicio con el peso máximo
+    const heaviestExercise = Object.entries(exerciseMaxWeights)
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || 'N/A';
+    const heaviestWeight = exerciseMaxWeights[heaviestExercise] || 0;
+
     return {
       totalWorkouts: workouts.length,
-      totalVolume: Math.round(totalVolume),
+      heaviestExercise: `${heaviestExercise} (${heaviestWeight}kg)`,
       mostFrequentExercise: mostFrequent,
       averageWorkoutDuration: workouts.length ? Math.round(totalDuration / workouts.length) : 0,
     };
@@ -129,20 +153,161 @@ export default function StatsScreen() {
   const calculateWorkoutDistribution = (workouts) => {
     const distribution = {};
     workouts.forEach(workout => {
-      distribution[workout.type] = (distribution[workout.type] || 0) + 1;
+      const type = workout.type;
+      distribution[type] = (distribution[type] || 0) + 1;
     });
 
-    return Object.entries(distribution).map(([name, count]) => ({
-      name,
-      count,
-      color: `#${Math.floor(Math.random()*16777215).toString(16)}`,
-    }));
+    const total = Object.values(distribution).reduce((a, b) => a + b, 0);
+    let currentAngle = 0;
+    
+    return Object.entries(distribution)
+      .map(([type, count], index) => {
+        const percentage = Math.round((count / total) * 100);
+        const angle = (count / total) * 360;
+        const item = {
+          name: type,
+          count,
+          percentage,
+          color: CHART_COLORS[index % CHART_COLORS.length],
+          legendFontColor: '#7F7F7F',
+          legendFontSize: 12,
+          legendFontWeight: '500',
+          startAngle: currentAngle,
+          angle: angle
+        };
+        currentAngle += angle;
+        return item;
+      })
+      .sort((a, b) => b.count - a.count);
   };
 
   const selectExercise = async (exerciseName) => {
+    // Si el ejercicio ya está seleccionado, lo deseleccionamos
+    if (selectedExercise === exerciseName) {
+      setSelectedExercise(null);
+      setExerciseStats({}); // Cambiar a objeto vacío en lugar de null
+      return;
+    }
+
+    // Si no, lo seleccionamos y cargamos sus estadísticas
     setSelectedExercise(exerciseName);
     const stats = await getExerciseStats(exerciseName);
-    setExerciseStats(stats);
+    setExerciseStats(stats || {}); // Asegurar que siempre sea un objeto
+  };
+
+  const calculateMuscleGroupStats = (workouts) => {
+    if (!workouts || workouts.length === 0) return [];
+
+    const muscleGroups = {};
+    let totalVolume = 0;
+
+    // Inicializar todos los grupos musculares
+    Object.keys(EXERCISE_GROUPS).forEach(group => {
+      muscleGroups[group] = {
+        volume: 0,
+        frequency: 0,
+        exercises: new Set(),
+      };
+    });
+
+    workouts.forEach(workout => {
+      if (!workout.exercises) return;
+
+      workout.exercises.forEach(exercise => {
+        // Encontrar a qué grupo muscular pertenece el ejercicio
+        let muscleGroup = null;
+        for (const [group, exercises] of Object.entries(EXERCISE_GROUPS)) {
+          if (exercises.exercises.includes(exercise.name)) {
+            muscleGroup = group;
+            break;
+          }
+        }
+
+        if (muscleGroup && muscleGroups[muscleGroup]) {
+          muscleGroups[muscleGroup].frequency++;
+          muscleGroups[muscleGroup].exercises.add(exercise.name);
+
+          // Calcular volumen (peso * reps)
+          if (exercise.sets) {
+            exercise.sets.forEach(set => {
+              if (set.weight && set.reps) {
+                const volume = parseFloat(set.weight) * parseInt(set.reps);
+                muscleGroups[muscleGroup].volume += volume;
+                totalVolume += volume;
+              }
+            });
+          }
+        }
+      });
+    });
+
+    // Convertir a formato para el gráfico
+    const result = Object.entries(muscleGroups)
+      .filter(([_, stats]) => stats.volume > 0) // Solo incluir grupos con volumen > 0
+      .map(([name, stats], index) => ({
+        name,
+        count: stats.volume, // Necesario para el PieChart
+        volume: Math.round(stats.volume),
+        percentage: totalVolume > 0 ? Math.round((stats.volume / totalVolume) * 100) : 0,
+        frequency: stats.frequency,
+        exerciseCount: stats.exercises.size,
+        color: CHART_COLORS[index % CHART_COLORS.length],
+        legendFontColor: '#7F7F7F',
+        legendFontSize: 12,
+      }))
+      .sort((a, b) => b.volume - a.volume);
+
+    console.log('Muscle group stats:', result); // Para depuración
+
+    return result;
+  };
+
+  const calculatePersonalRecords = (workouts) => {
+    const prs = {};
+    const prHistory = {};
+
+    workouts.forEach(workout => {
+      workout.exercises.forEach(exercise => {
+        if (!prs[exercise.name]) {
+          prs[exercise.name] = {
+            maxWeight: 0,
+            maxReps: 0,
+            maxVolume: 0,
+            date: null
+          };
+        }
+        if (!prHistory[exercise.name]) {
+          prHistory[exercise.name] = [];
+        }
+
+        exercise.sets.forEach(set => {
+          const weight = parseFloat(set.weight) || 0;
+          const reps = parseInt(set.reps) || 0;
+          const volume = weight * reps;
+
+          // Actualizar PRs si encontramos nuevos máximos
+          if (weight > prs[exercise.name].maxWeight) {
+            prs[exercise.name].maxWeight = weight;
+            prs[exercise.name].date = workout.date;
+          }
+          if (reps > prs[exercise.name].maxReps) {
+            prs[exercise.name].maxReps = reps;
+          }
+          if (volume > prs[exercise.name].maxVolume) {
+            prs[exercise.name].maxVolume = volume;
+          }
+
+          // Guardar historial para el gráfico
+          prHistory[exercise.name].push({
+            date: workout.date,
+            weight,
+            volume
+          });
+        });
+      });
+    });
+
+    return { prs, prHistory };
   };
 
   if (loading) {
@@ -177,8 +342,8 @@ export default function StatsScreen() {
               <Text style={styles.summaryLabel}>Entrenamientos</Text>
             </View>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryValue}>{summaryStats.totalVolume.toLocaleString()}kg</Text>
-              <Text style={styles.summaryLabel}>Volumen Total</Text>
+              <Text style={styles.summaryValue}>{summaryStats.heaviestExercise}</Text>
+              <Text style={styles.summaryLabel}>Ejercicio Más Pesado</Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryValue}>{summaryStats.averageWorkoutDuration}min</Text>
@@ -197,17 +362,113 @@ export default function StatsScreen() {
         <Card style={styles.card}>
           <Card.Content>
             <Title>Distribución de Entrenamientos</Title>
-            <PieChart
-              data={workoutDistribution}
-              width={Dimensions.get('window').width - 32}
-              height={220}
-              chartConfig={{
-                color: (opacity = 1) => `rgba(98, 0, 238, ${opacity})`,
-              }}
-              accessor="count"
-              backgroundColor="transparent"
-              paddingLeft="15"
-            />
+            <View style={styles.distributionContainer}>
+              <PieChart
+                data={workoutDistribution}
+                width={Dimensions.get('window').width - 32}
+                height={200}
+                chartConfig={{
+                  backgroundColor: '#ffffff',
+                  backgroundGradientFrom: '#ffffff',
+                  backgroundGradientTo: '#ffffff',
+                  color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                }}
+                accessor="count"
+                backgroundColor="transparent"
+                paddingLeft="0"
+                absolute
+                hasLegend={true}
+                center={[30, 0]}
+                radius={70}
+              />
+            </View>
+          </Card.Content>
+        </Card>
+      )}
+
+      {/* Análisis por Grupo Muscular */}
+      {workouts.length > 0 && (
+        <Card style={styles.card}>
+          <Card.Content>
+            <Title>Análisis por Grupo Muscular</Title>
+            {calculateMuscleGroupStats(workouts).length > 0 ? (
+              <>
+                <View style={styles.distributionContainer}>
+                  <PieChart
+                    data={calculateMuscleGroupStats(workouts)}
+                    width={Dimensions.get('window').width - 32}
+                    height={200}
+                    chartConfig={{
+                      backgroundColor: '#ffffff',
+                      backgroundGradientFrom: '#ffffff',
+                      backgroundGradientTo: '#ffffff',
+                      color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                      labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                    }}
+                    accessor="count"
+                    backgroundColor="transparent"
+                    paddingLeft="0"
+                    absolute
+                    hasLegend={true}
+                    center={[40, 0]}
+                    radius={70}
+                  />
+                </View>
+                <View style={styles.muscleGroupDetails}>
+                  {calculateMuscleGroupStats(workouts).map((group, index) => (
+                    <View key={index} style={styles.muscleGroupItem}>
+                      <Text style={styles.muscleGroupName}>{group.name}</Text>
+                      <Text style={styles.muscleGroupStats}>
+                        Volumen: {group.volume.toLocaleString()}kg • 
+                        Frecuencia: {group.frequency} veces • 
+                        Ejercicios: {group.exerciseCount}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <Text style={styles.noDataText}>
+                No hay datos disponibles para el análisis por grupo muscular
+              </Text>
+            )}
+          </Card.Content>
+        </Card>
+      )}
+
+      {/* Récords Personales */}
+      {workouts.length > 0 && (
+        <Card style={styles.card}>
+          <Card.Content>
+            <Title>Récords Personales</Title>
+            <List.AccordionGroup>
+              {Object.entries(calculatePersonalRecords(workouts).prs).map(([exercise, records], index) => (
+                <List.Accordion
+                  key={index}
+                  title={exercise}
+                  id={index.toString()}
+                  style={styles.prAccordion}
+                >
+                  <View style={styles.prDetails}>
+                    <View style={styles.prItem}>
+                      <Text style={styles.prLabel}>Peso Máximo</Text>
+                      <Text style={styles.prValue}>{records.maxWeight}kg</Text>
+                    </View>
+                    <View style={styles.prItem}>
+                      <Text style={styles.prLabel}>Reps Máximas</Text>
+                      <Text style={styles.prValue}>{records.maxReps}</Text>
+                    </View>
+                    <View style={styles.prItem}>
+                      <Text style={styles.prLabel}>Volumen Máximo</Text>
+                      <Text style={styles.prValue}>{Math.round(records.maxVolume)}kg</Text>
+                    </View>
+                    <Text style={styles.prDate}>
+                      Último PR: {new Date(records.date).toLocaleDateString()}
+                    </Text>
+                  </View>
+                </List.Accordion>
+              ))}
+            </List.AccordionGroup>
           </Card.Content>
         </Card>
       )}
@@ -303,32 +564,32 @@ export default function StatsScreen() {
         </Card.Content>
       </Card>
 
-      {selectedExercise && exerciseStats && (
+      {selectedExercise && (
         <Card style={styles.statsCard}>
           <Card.Content>
             <Title style={styles.title}>{selectedExercise}</Title>
             <View style={styles.statsContainer}>
               <List.Item
                 title="Peso Máximo"
-                description={`${exerciseStats.maxWeight} kg`}
+                description={`${exerciseStats.maxWeight || 0} kg`}
                 left={props => <List.Icon {...props} icon="dumbbell" />}
                 style={styles.statItem}
               />
               <List.Item
                 title="Último Peso"
-                description={`${exerciseStats.lastWeight} kg`}
+                description={`${exerciseStats.lastWeight || 0} kg`}
                 left={props => <List.Icon {...props} icon="clock-outline" />}
                 style={styles.statItem}
               />
               <List.Item
                 title="Promedio de Repeticiones"
-                description={exerciseStats.averageReps}
+                description={exerciseStats.averageReps || 0}
                 left={props => <List.Icon {...props} icon="repeat" />}
                 style={styles.statItem}
               />
               <List.Item
                 title="Volumen Total"
-                description={`${exerciseStats.totalVolume} kg`}
+                description={`${exerciseStats.totalVolume || 0} kg`}
                 left={props => <List.Icon {...props} icon="chart-bar" />}
                 style={styles.statItem}
               />
@@ -444,5 +705,95 @@ const styles = StyleSheet.create({
     color: '#444444',
     marginTop: 16,
     fontStyle: 'italic',
-  }
+  },
+  distributionContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    height: 200,
+  },
+  legendContainer: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  legendColor: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  legendText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  chartContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieChart: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  pieSlice: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+  muscleGroupDetails: {
+    marginTop: 16,
+  },
+  muscleGroupItem: {
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+  },
+  muscleGroupName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+    color: '#333',
+  },
+  muscleGroupStats: {
+    fontSize: 14,
+    color: '#666',
+  },
+  prAccordion: {
+    backgroundColor: '#f8f9fa',
+    marginBottom: 1,
+  },
+  prDetails: {
+    padding: 16,
+    backgroundColor: '#ffffff',
+  },
+  prItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  prLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  prValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#6200ee',
+  },
+  prDate: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
 });
