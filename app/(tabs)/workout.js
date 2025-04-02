@@ -50,9 +50,16 @@ export default function WorkoutScreen() {
       if (found) {
         setWorkoutType(found);
         initializeExercises(found.exercises);
+      } else {
+        // Buscar en rutinas personalizadas
+        const customRoutine = customRoutines.find(r => r.name === initialWorkoutType);
+        if (customRoutine) {
+          setWorkoutType(customRoutine);
+          initializeExercises(customRoutine.exercises);
+        }
       }
     }
-  }, [initialWorkoutType]);
+  }, [initialWorkoutType, customRoutines]);
 
   useEffect(() => {
     initializeExercises(workoutType.exercises);
@@ -249,6 +256,19 @@ export default function WorkoutScreen() {
                 setShowWorkoutTypeMenu(false);
               }}
               title={type.name}
+              style={styles.menuItem}
+            />
+          ))}
+          <Divider />
+          {customRoutines.map((routine) => (
+            <Menu.Item
+              key={routine.id}
+              onPress={() => {
+                setWorkoutType(routine);
+                initializeExercises(routine.exercises);
+                setShowWorkoutTypeMenu(false);
+              }}
+              title={routine.name}
               style={styles.menuItem}
             />
           ))}
